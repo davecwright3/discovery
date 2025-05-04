@@ -4,7 +4,7 @@ import numpyro
 from numpyro import infer
 from numpyro import distributions as dist
 
-from .. import prior
+from discovery import prior
 
 
 def makemodel_transformed(mylogl, transform=prior.makelogtransform_uniform, priordict={}):
