@@ -129,6 +129,25 @@ def make_chromaticdelay(psr, idx=None):
     ln_invnormfreqs = matrix.jnp.log(invnormfreqs)
 
     def decay(t0, log10_Amp, log10_tau, idx):
+        """Chromatic exponential-dip delay.
+
+        Parameters
+        ----------
+        t0 : float
+            The start of the dip (days)
+        log10_Amp : float
+            Log of the amplitude of the dip
+        log10_tau : float
+            Log of timescale of the dip (days)
+        idx : float
+            The chromatic index
+
+        Returns
+        -------
+        array_like
+            ``-1 * abs(delay)`` in seconds
+
+        """
 
         # Note that the usage of ``jax.numpy.where`` allows for the TOAs to be unordered.
         # We only need to store the differences here.
