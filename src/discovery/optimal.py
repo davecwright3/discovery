@@ -7,6 +7,7 @@ from . import matrix
 from . import signals
 
 import jax
+import quadax
 
 # these versions of ORFs take only one parameter (the angle)
 # z = matrix.jnp.dot(pos1, pos2)
@@ -361,7 +362,7 @@ class OS:
                 # bs = [matrix.jnp.trace(ks[i][1] @ N @ ks[j][1] @ N) for (i,j) in pairs]
 
             return (matrix.jnparray(ts) / matrix.jnparray(bs),
-                    1.0 / matrix.jnp.sqrt(matrix.jnparray(bs)))
+                    1.0 / matrix.jnp.sqrt(matrix.jnp.abs(matrix.jnparray(bs))))
 
         get_rhosigma.params = sorted(set.union(*[set(k.params) for k in kernelsolves], getN.params))
 
@@ -470,12 +471,31 @@ class OS:
 
         return get_shift
 
-    def gx2cdf(self, params, osxs, cutoff=1e-6, limit=100, epsabs=1e-6):
+    def get_eigs(self, params):
         Qmat = self.Q(params)
-        eigx = matrix.jnp.linalg.eigh(Qmat)[0]
+        return matrix.jnp.linalg.eigvalsh(Qmat)
 
+    def gx2cdf(self, params, osxs, cutoff=1e-6, limit=100, epsabs=1e-6):
+        eigx = self.get_eigs(params)
         return eig2cdf(osxs, eigx, cutoff=cutoff, limit=limit, epsabs=epsabs)
 
+    def get_snr(self, params):
+        return self.os(params)["snr"]
+
+    def get_fixedpar_os_distribution_and_pval(self, params, snr_bounds=matrix.jnp.array([-1, 10])):
+        """Returns (snr, cdf-val, snr_dist, cdf_dist)"""
+        snr = self.get_snr(params)
+        num_snrs_half = 10
+        snr_linspace = matrix.jnp.concat(
+            [
+                matrix.jnp.linspace(snr_bounds[0], snr, num_snrs_half, endpoint=False),
+                matrix.jnp.linspace(snr, snr + snr_bounds[-1], num_snrs_half),
+            ]
+        )
+
+        cdf = self.gx2cdf(params, snr_linspace)
+
+        return snr, cdf[num_snrs_half], snr_linspace, cdf
 
 @jax.jit
 def imhof(u, x, eigs):
@@ -486,8 +506,13 @@ def imhof(u, x, eigs):
 
 def eig2cdf(osxs, eigs, cutoff=1e-6, limit=100, epsabs=1e-6):
     # cutoff by number of eigenvalues is more friendly to jitted imhof
-    eigs = eigs[:cutoff] if cutoff > 1 else eigs[matrix.jnp.abs(eigs) > cutoff]
+    # no cutoff when jitting
+    # eigs = eigs[:cutoff] if cutoff > 1 else eigs[matrix.jnp.abs(eigs) > cutoff]
+    # eigs = eigs[matrix.jnp.abs(eigs) > cutoff]
 
-    # jax.scipy.integrate is mostly not implemented. Could try quadax
-    return np.array([0.5 - scipy.integrate.quad(lambda u: float(imhof(u, osx, eigs)),
-                                                0, np.inf, limit=limit, epsabs=epsabs)[0] / np.pi for osx in osxs])
+    return 0.5 - jax.vmap(
+        lambda osx: quadax.quadgk(lambda u: imhof(u, osx, eigs), [0, matrix.jnp.inf], max_ninter=limit, epsabs=epsabs)[
+            0
+        ]
+        / matrix.jnp.pi
+    )(osxs)
